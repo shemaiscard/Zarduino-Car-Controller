@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zarduino | BLE Car Controller</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --border: #2a2a2a;
+      --accent: #00c8ff;
+      --accent-dim: #007a9c;
+      --text: #e0e0e0;
+      --text-dim: #888;
+      --btn-bg: #1e1e1e;
+      --btn-active: #00c8ff22;
+      --danger: #ff4444;
+      --success: #00ff88;
+    }
+    body.light {
+      --bg: #f0f0f0;
+      --surface: #ffffff;
+      --border: #ddd;
+      --accent: #0077aa;
+      --accent-dim: #005577;
+      --text: #111;
+      --text-dim: #555;
+      --btn-bg: #e8e8e8;
+      --btn-active: #0077aa22;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      transition: background 0.2s, color 0.2s;
+    }
+    header {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    h1 { font-size: 1.4rem; letter-spacing: 0.05em; color: var(--accent); }
+    h1 span { color: var(--text); }
+    .theme-btn {
+      background: var(--btn-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      width: 100%;
+      max-width: 480px;
+      margin-bottom: 16px;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--danger);
+      transition: background 0.3s;
+    }
+    .dot.connected { background: var(--success); }
+    #status-text { font-size: 0.9rem; color: var(--text-dim); flex: 1; }
+    #connect-btn {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: background 0.2s, opacity 0.2s;
+    }
+    #connect-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    #connect-btn.disconnect { background: var(--danger); color: #fff; }
+    .mode-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--btn-bg);
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.15s;
+    }
+    .mode-btn.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--btn-active);
+    }
+    /* D-pad */
+    .dpad {
+      display: grid;
+      grid-template-columns: repeat(3, 80px);
+      grid-template-rows: repeat(3, 80px);
+      gap: 8px;
+      justify-content: center;
+    }
+    .dpad-btn {
+      background: var(--btn-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 1.6rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      transition: background 0.1s, border-color 0.1s, transform 0.1s;
+    }
+    .dpad-btn:active, .dpad-btn.pressed {
+      background: var(--btn-active);
+      border-color: var(--accent);
+      transform: scale(0.94);
+    }
+    .dpad-btn.stop {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--danger);
+      border-color: var(--danger);
+    }
+    .dpad-btn.stop:active { background: #ff444422; }
+    /* Joystick */
+    #joystick-panel { display: none; }
+    #joystick-panel.active { display: block; }
+    #dpad-panel.hidden { display: none; }
+    .joystick-wrap {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 200px;
+    }
+    #joystick-canvas {
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      cursor: grab;
+      touch-action: none;
+    }
+    .gamepad-hint {
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-top: 12px;
+    }
+    .gamepad-hint span {
+      color: var(--accent);
+    }
+    #gamepad-status {
+      font-size: 0.8rem;
+      text-align: center;
+      color: var(--text-dim);
+      margin-top: 8px;
+    }
+    .cmd-log {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      font-family: monospace;
+      margin-top: 12px;
+      text-align: center;
+      min-height: 18px;
+    }
+    .cmd-log span { color: var(--accent); }
+    footer {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 8px;
+    }
+    @media (max-width: 380px) {
+      .dpad { grid-template-columns: repeat(3, 68px); grid-template-rows: repeat(3, 68px); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ZARD<span>UINO</span></h1>
+    <button class="theme-btn" onclick="toggleTheme()">Light / Dark</button>
+  </header>
+
+  <div class="card">
+    <div class="status-row">
+      <div class="dot" id="dot"></div>
+      <span id="status-text">Disconnected</span>
+      <button id="connect-btn" onclick="toggleConnect()">Connect BLE</button>
+    </div>
+
+    <div class="mode-row">
+      <button class="mode-btn active" id="btn-dpad" onclick="setMode('dpad')">Manual</button>
+      <button class="mode-btn" id="btn-joystick" onclick="setMode('joystick')">Joystick</button>
+    </div>
+
+    <div id="dpad-panel">
+      <div class="dpad">
+        <div></div>
+        <button class="dpad-btn" id="btn-f" data-cmd="f">&#8679;</button>
+        <div></div>
+        <button class="dpad-btn" id="btn-l" data-cmd="l">&#8678;</button>
+        <button class="dpad-btn stop" id="btn-s" data-cmd="s">STOP</button>
+        <button class="dpad-btn" id="btn-r" data-cmd="r">&#8680;</button>
+        <div></div>
+        <button class="dpad-btn" id="btn-b" data-cmd="b">&#8681;</button>
+        <div></div>
+      </div>
+    </div>
+
+    <div id="joystick-panel">
+      <div class="joystick-wrap">
+        <canvas id="joystick-canvas" width="180" height="180"></canvas>
+      </div>
+      <div class="gamepad-hint">Xbox controller: <span>left stick</span></div>
+      <div id="gamepad-status">No gamepad detected</div>
+    </div>
+
+    <div class="cmd-log">Last command: <span id="last-cmd">--</span></div>
+  </div>
+
+  <footer>Web Bluetooth API requires Chrome or Edge on HTTPS</footer>
+
+  <script>
+    const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+    const CHAR_UUID    = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+    const DEADZONE     = 0.25;
+
+    let bleDevice = null, bleChar = null, connected = false;
+    let mode = 'dpad';
+    let lastCmd = '';
+    let gpInterval = null;
+
+    // Theme
+    function toggleTheme() {
+      document.body.classList.toggle('light');
+      drawJoystick(0, 0);
+    }
+
+    // BLE
+    async function toggleConnect() {
+      if (connected) { bleDevice && bleDevice.gatt.disconnect(); return; }
+      try {
+        document.getElementById('connect-btn').disabled = true;
+        document.getElementById('status-text').textContent = 'Scanning...';
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ name: 'Arduino-BLE-Bridge' }],
+          optionalServices: [SERVICE_UUID]
+        });
+        bleDevice.addEventListener('gattserverdisconnected', onDisconnect);
+        const server  = await bleDevice.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        bleChar = await service.getCharacteristic(CHAR_UUID);
+        setConnected(true);
+      } catch (e) {
+        setConnected(false);
+        document.getElementById('status-text').textContent = e.message || 'Failed';
+      }
+      document.getElementById('connect-btn').disabled = false;
+    }
+
+    function onDisconnect() { setConnected(false); }
+
+    function setConnected(val) {
+      connected = val;
+      document.getElementById('dot').classList.toggle('connected', val);
+      document.getElementById('status-text').textContent = val ? 'Connected to Arduino-BLE-Bridge' : 'Disconnected';
+      const btn = document.getElementById('connect-btn');
+      btn.textContent = val ? 'Disconnect' : 'Connect BLE';
+      btn.classList.toggle('disconnect', val);
+      if (!val) { bleChar = null; bleDevice = null; }
+    }
+
+    async function sendCmd(cmd) {
+      if (!bleChar || cmd === lastCmd) return;
+      try {
+        await bleChar.writeValue(new TextEncoder().encode(cmd));
+        lastCmd = cmd;
+        document.getElementById('last-cmd').textContent = cmd;
+      } catch (e) { setConnected(false); }
+    }
+
+    // D-pad buttons
+    document.querySelectorAll('.dpad-btn[data-cmd]').forEach(btn => {
+      const press   = () => { btn.classList.add('pressed');    sendCmd(btn.dataset.cmd); };
+      const release = () => { btn.classList.remove('pressed'); sendCmd('s'); };
+      btn.addEventListener('mousedown',  press);
+      btn.addEventListener('touchstart', e => { e.preventDefault(); press(); }, { passive: false });
+      btn.addEventListener('mouseup',    release);
+      btn.addEventListener('mouseleave', release);
+      btn.addEventListener('touchend',   release);
+    });
+
+    // Keyboard
+    const keyMap = { ArrowUp:'f', ArrowDown:'b', ArrowLeft:'l', ArrowRight:'r', ' ':'s', w:'f', s:'b', a:'l', d:'r' };
+    window.addEventListener('keydown', e => { if (keyMap[e.key]) { e.preventDefault(); sendCmd(keyMap[e.key]); } });
+    window.addEventListener('keyup',   e => { if (keyMap[e.key] && keyMap[e.key] !== 's') sendCmd('s'); });
+
+    // Mode switch
+    function setMode(m) {
+      mode = m;
+      document.getElementById('btn-dpad').classList.toggle('active', m === 'dpad');
+      document.getElementById('btn-joystick').classList.toggle('active', m === 'joystick');
+      document.getElementById('dpad-panel').classList.toggle('hidden', m !== 'dpad');
+      document.getElementById('joystick-panel').classList.toggle('active', m === 'joystick');
+      if (m === 'joystick') { startGamepadLoop(); drawJoystick(0, 0); }
+      else { stopGamepadLoop(); }
+    }
+
+    // Joystick canvas
+    const canvas = document.getElementById('joystick-canvas');
+    const ctx = canvas.getContext('2d');
+    const CX = canvas.width / 2, CY = canvas.height / 2, R = 70, THUMB = 24;
+    let dragging = false, jx = 0, jy = 0;
+
+    function drawJoystick(nx, ny) {
+      const light = document.body.classList.contains('light');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI * 2);
+      ctx.fillStyle = light ? '#e0e0e0' : '#1e1e1e';
+      ctx.fill();
+      ctx.strokeStyle = light ? '#bbb' : '#2a2a2a'; ctx.lineWidth = 2; ctx.stroke();
+      const px = CX + nx * R, py = CY + ny * R;
+      ctx.beginPath(); ctx.arc(px, py, THUMB, 0, Math.PI * 2);
+      ctx.fillStyle = light ? '#0077aa' : '#00c8ff';
+      ctx.fill();
+    }
+
+    function joystickInput(nx, ny) {
+      jx = Math.max(-1, Math.min(1, nx));
+      jy = Math.max(-1, Math.min(1, ny));
+      drawJoystick(jx, jy);
+      const ax = Math.abs(jx), ay = Math.abs(jy);
+      if (ax < DEADZONE && ay < DEADZONE) { sendCmd('s'); return; }
+      if (ay >= ax) sendCmd(jy < 0 ? 'f' : 'b');
+      else sendCmd(jx > 0 ? 'r' : 'l');
+    }
+
+    canvas.addEventListener('mousedown',  e => { dragging = true; moveJoystick(e); });
+    canvas.addEventListener('mousemove',  e => { if (dragging) moveJoystick(e); });
+    canvas.addEventListener('mouseup',    () => { dragging = false; joystickInput(0, 0); });
+    canvas.addEventListener('touchstart', e => { dragging = true; moveJoystick(e.touches[0]); }, { passive: true });
+    canvas.addEventListener('touchmove',  e => { if (dragging) moveJoystick(e.touches[0]); }, { passive: true });
+    canvas.addEventListener('touchend',   () => { dragging = false; joystickInput(0, 0); });
+
+    function moveJoystick(e) {
+      const rect = canvas.getBoundingClientRect();
+      const nx = ((e.clientX - rect.left) - CX) / R;
+      const ny = ((e.clientY - rect.top)  - CY) / R;
+      joystickInput(nx, ny);
+    }
+
+    // Gamepad
+    function startGamepadLoop() {
+      if (gpInterval) return;
+      gpInterval = setInterval(pollGamepad, 100);
+    }
+    function stopGamepadLoop() {
+      clearInterval(gpInterval); gpInterval = null;
+    }
+    function pollGamepad() {
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      let found = false;
+      for (const gp of pads) {
+        if (!gp) continue;
+        found = true;
+        document.getElementById('gamepad-status').textContent = 'Gamepad: ' + gp.id.slice(0, 30);
+        const lx = gp.axes[0] || 0;
+        const ly = gp.axes[1] || 0;
+        joystickInput(lx, ly);
+        break;
+      }
+      if (!found) document.getElementById('gamepad-status').textContent = 'No gamepad detected';
+    }
+
+    drawJoystick(0, 0);
+  </script>
+</body>
+</html>
