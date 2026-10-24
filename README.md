@@ -1,6 +1,6 @@
 # Zarduino Car Controller
 
-**Live Demo:** [zarduino.netlify.app](https://zarduino.netlify.app) *(update after deploy)*
+**Live Demo:** [zarduino.netlify.app](https://zarduino.netlify.app)
 
 A browser-based BLE controller for an Arduino-powered car. Uses Web Bluetooth to connect to an ESP32 bridge, which relays commands to an Arduino motor controller via serial.
 
@@ -16,11 +16,21 @@ Web Browser  -->  ESP32 (BLE Server)  -->  Arduino (Serial)  -->  Motors + Servo
 
 ## Web Controller Features
 
-- Manual D-pad buttons (click or touch)
-- Keyboard support: arrow keys or WASD
-- Joystick mode with Xbox gamepad support (left stick)
+- Manual D-pad buttons (click or touch) with a speed slider
+- Keyboard support: arrow keys or WASD (releasing one key falls back to another key still held)
+- Analog joystick mode with Xbox gamepad support (left stick): speed and steering follow the stick
 - Dark/Light theme toggle
 - Real-time BLE connection status
+
+## Safety
+
+- **Watchdog:** while the car moves, the page repeats the current command every 150 ms. If the Arduino hears nothing for 500 ms (link lost, tab closed, bridge reset) it stops the motors and centers the steering.
+- **Stop on disconnect:** the ESP32 sends a stop to the Arduino as soon as the BLE client disconnects.
+- **Stop when hidden:** switching tabs or locking the phone sends a stop.
+- **One write at a time:** the page never starts a BLE write while another is pending; the newest command is sent next.
+- **Optional pairing:** set `REQUIRE_PASSKEY` to 1 in `ble_bridge.ino` and choose your own `PASSKEY`. The operating system then asks for the passkey before the page can drive the car.
+
+Flash both firmware files after updating; the new page and the new car firmware go together.
 
 ## Hardware Wiring
 
@@ -61,6 +71,9 @@ Deploy to Netlify:
 | `l` | Turn Left |
 | `r` | Turn Right |
 | `s` | Stop |
+| `J<speed>,<steer>` + newline | Analog drive: speed -100..100 (negative is reverse), steer -100..100 (negative is left), in percent |
+
+Single-letter commands drive at full speed. The page sends `J` commands for driving and `s` for stop.
 
 ## Servo Trim
 

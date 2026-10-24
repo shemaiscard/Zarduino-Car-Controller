@@ -186,6 +186,16 @@
       color: var(--text-dim);
       margin-top: 8px;
     }
+    .speed-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 18px;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+    .speed-row input { flex: 1; accent-color: var(--accent); }
+    .speed-row output { min-width: 3.2em; text-align: right; color: var(--accent); font-family: monospace; }
     .cmd-log {
       font-size: 0.78rem;
       color: var(--text-dim);
@@ -235,6 +245,10 @@
         <button class="dpad-btn" id="btn-b" data-cmd="b">&#8681;</button>
         <div></div>
       </div>
+      <label class="speed-row">Speed
+        <input type="range" id="speed" min="30" max="100" step="10" value="100" />
+        <output id="speed-val">100%</output>
+      </label>
     </div>
 
     <div id="joystick-panel">
@@ -254,11 +268,18 @@
     const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
     const CHAR_UUID    = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
     const DEADZONE     = 0.25;
+    // While the car moves, the current command is repeated this often. The car
+    // stops by itself if it hears nothing for 500 ms (see car_controller.ino).
+    const HEARTBEAT_MS = 150;
 
     let bleDevice = null, bleChar = null, connected = false;
     let mode = 'dpad';
-    let lastCmd = '';
+    let current = 's';    // what the car should be doing now
+    let lastSent = '';    // last command the car acknowledged
+    let writing = false;  // Web Bluetooth allows one GATT write at a time
+    let heartbeat = null;
     let gpInterval = null;
+    let dpadDir = 's';
 
     // Theme
     function toggleTheme() {
@@ -268,7 +289,12 @@
 
     // BLE
     async function toggleConnect() {
-      if (connected) { bleDevice && bleDevice.gatt.disconnect(); return; }
+      if (connected) {
+        current = 's';
+        await pump();
+        bleDevice && bleDevice.gatt.disconnect();
+        return;
+      }
       try {
         document.getElementById('connect-btn').disabled = true;
         document.getElementById('status-text').textContent = 'Scanning...';
@@ -297,37 +323,100 @@
       const btn = document.getElementById('connect-btn');
       btn.textContent = val ? 'Disconnect' : 'Connect BLE';
       btn.classList.toggle('disconnect', val);
-      if (!val) { bleChar = null; bleDevice = null; }
+      // A new link starts from a known state: stopped, nothing sent yet.
+      current = 's'; lastSent = ''; writing = false;
+      clearInterval(heartbeat); heartbeat = null;
+      if (val) {
+        heartbeat = setInterval(() => { if (current !== 's' || lastSent !== 's') pump(true); }, HEARTBEAT_MS);
+        pump();
+      } else {
+        bleChar = null; bleDevice = null;
+      }
     }
 
-    async function sendCmd(cmd) {
-      if (!bleChar || cmd === lastCmd) return;
+    // Writes go out one at a time. If the command changes while a write is in
+    // flight, the newest command is sent as soon as that write finishes.
+    async function pump(repeat = false) {
+      if (!bleChar || writing) return;
+      if (!repeat && current === lastSent) return;
+      const cmd = current;
+      writing = true;
       try {
-        await bleChar.writeValue(new TextEncoder().encode(cmd));
-        lastCmd = cmd;
-        document.getElementById('last-cmd').textContent = cmd;
-      } catch (e) { setConnected(false); }
+        await bleChar.writeValue(new TextEncoder().encode(cmd.startsWith('J') ? cmd + '\n' : cmd));
+        lastSent = cmd;
+      } catch (e) {
+        // Only a dropped link counts as a disconnection; other failures are
+        // retried by the next command or heartbeat.
+        writing = false;
+        if (bleDevice && !bleDevice.gatt.connected) setConnected(false);
+        return;
+      }
+      writing = false;
+      if (current !== lastSent) pump();
     }
+
+    function drive(cmd) {
+      current = cmd;
+      document.getElementById('last-cmd').textContent = cmd;
+      pump();
+    }
+
+    // Manual driving uses the speed slider: J<speed %>,<steer %>
+    function speedPct() { return Number(document.getElementById('speed').value); }
+    function cmdFor(dir) {
+      const v = speedPct();
+      return { f: `J${v},0`, b: `J-${v},0`, l: `J${v},-100`, r: `J${v},100`, s: 's' }[dir];
+    }
+    function driveDir(dir) { dpadDir = dir; drive(cmdFor(dir)); }
+
+    document.getElementById('speed').addEventListener('input', e => {
+      document.getElementById('speed-val').textContent = e.target.value + '%';
+      if (mode === 'dpad' && dpadDir !== 's') drive(cmdFor(dpadDir));
+    });
 
     // D-pad buttons
     document.querySelectorAll('.dpad-btn[data-cmd]').forEach(btn => {
-      const press   = () => { btn.classList.add('pressed');    sendCmd(btn.dataset.cmd); };
-      const release = () => { btn.classList.remove('pressed'); sendCmd('s'); };
+      const press   = () => { btn.classList.add('pressed'); driveDir(btn.dataset.cmd); };
+      const release = () => {
+        if (!btn.classList.contains('pressed')) return;
+        btn.classList.remove('pressed'); driveDir('s');
+      };
       btn.addEventListener('mousedown',  press);
       btn.addEventListener('touchstart', e => { e.preventDefault(); press(); }, { passive: false });
       btn.addEventListener('mouseup',    release);
       btn.addEventListener('mouseleave', release);
       btn.addEventListener('touchend',   release);
+      btn.addEventListener('touchcancel', release);
     });
 
-    // Keyboard
+    // Keyboard: releasing one key falls back to another key still held.
     const keyMap = { ArrowUp:'f', ArrowDown:'b', ArrowLeft:'l', ArrowRight:'r', ' ':'s', w:'f', s:'b', a:'l', d:'r' };
-    window.addEventListener('keydown', e => { if (keyMap[e.key]) { e.preventDefault(); sendCmd(keyMap[e.key]); } });
-    window.addEventListener('keyup',   e => { if (keyMap[e.key] && keyMap[e.key] !== 's') sendCmd('s'); });
+    const held = [];
+    window.addEventListener('keydown', e => {
+      const dir = keyMap[e.key];
+      if (!dir) return;
+      e.preventDefault();
+      if (dir === 's') { held.length = 0; driveDir('s'); return; }
+      if (!held.includes(e.key)) held.push(e.key);
+      driveDir(dir);
+    });
+    window.addEventListener('keyup', e => {
+      const i = held.indexOf(e.key);
+      if (i < 0) return;
+      held.splice(i, 1);
+      driveDir(held.length ? keyMap[held[held.length - 1]] : 's');
+    });
+
+    // Stop when the page is hidden: background tabs throttle timers, so the
+    // heartbeat cannot be trusted there.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { held.length = 0; driveDir('s'); }
+    });
 
     // Mode switch
     function setMode(m) {
       mode = m;
+      driveDir('s');
       document.getElementById('btn-dpad').classList.toggle('active', m === 'dpad');
       document.getElementById('btn-joystick').classList.toggle('active', m === 'joystick');
       document.getElementById('dpad-panel').classList.toggle('hidden', m !== 'dpad');
@@ -355,22 +444,28 @@
       ctx.fill();
     }
 
+    // Analog: the stick's position sets speed and steering in 10% steps.
+    function axisPct(v) {
+      const a = Math.abs(v);
+      if (a < DEADZONE) return 0;
+      return Math.sign(v) * Math.round(((a - DEADZONE) / (1 - DEADZONE)) * 10) * 10;
+    }
     function joystickInput(nx, ny) {
-      jx = Math.max(-1, Math.min(1, nx));
-      jy = Math.max(-1, Math.min(1, ny));
+      const len = Math.hypot(nx, ny);
+      if (len > 1) { nx /= len; ny /= len; }
+      jx = nx; jy = ny;
       drawJoystick(jx, jy);
-      const ax = Math.abs(jx), ay = Math.abs(jy);
-      if (ax < DEADZONE && ay < DEADZONE) { sendCmd('s'); return; }
-      if (ay >= ax) sendCmd(jy < 0 ? 'f' : 'b');
-      else sendCmd(jx > 0 ? 'r' : 'l');
+      const speed = axisPct(-jy), steer = axisPct(jx);
+      drive(speed === 0 && steer === 0 ? 's' : `J${speed},${steer}`);
     }
 
     canvas.addEventListener('mousedown',  e => { dragging = true; moveJoystick(e); });
     canvas.addEventListener('mousemove',  e => { if (dragging) moveJoystick(e); });
-    canvas.addEventListener('mouseup',    () => { dragging = false; joystickInput(0, 0); });
+    window.addEventListener('mouseup',    () => { if (dragging) { dragging = false; joystickInput(0, 0); } });
     canvas.addEventListener('touchstart', e => { dragging = true; moveJoystick(e.touches[0]); }, { passive: true });
     canvas.addEventListener('touchmove',  e => { if (dragging) moveJoystick(e.touches[0]); }, { passive: true });
     canvas.addEventListener('touchend',   () => { dragging = false; joystickInput(0, 0); });
+    canvas.addEventListener('touchcancel', () => { dragging = false; joystickInput(0, 0); });
 
     function moveJoystick(e) {
       const rect = canvas.getBoundingClientRect();
@@ -394,12 +489,15 @@
         if (!gp) continue;
         found = true;
         document.getElementById('gamepad-status').textContent = 'Gamepad: ' + gp.id.slice(0, 30);
-        const lx = gp.axes[0] || 0;
-        const ly = gp.axes[1] || 0;
-        joystickInput(lx, ly);
+        if (!dragging) joystickInput(gp.axes[0] || 0, gp.axes[1] || 0);
         break;
       }
       if (!found) document.getElementById('gamepad-status').textContent = 'No gamepad detected';
+    }
+
+    if (!navigator.bluetooth) {
+      document.getElementById('status-text').textContent = 'This browser has no Web Bluetooth. Use Chrome or Edge.';
+      document.getElementById('connect-btn').disabled = true;
     }
 
     drawJoystick(0, 0);

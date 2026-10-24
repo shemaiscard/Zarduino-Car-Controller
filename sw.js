@@ -1,4 +1,4 @@
-const CACHE_NAME = 'zarduino-v1';
+const CACHE_NAME = 'zarduino-v2';
 const ASSETS = [
   '/',
   '/index.html',
