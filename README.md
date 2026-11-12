@@ -10,9 +10,9 @@ A browser-based BLE controller for an Arduino-powered car. Uses Web Bluetooth to
 Web Browser  -->  ESP32 (BLE Server)  -->  Arduino (Serial)  -->  Motors + Servo
 ```
 
-1. **Web App** (`index.html`) -- sends commands (`f`, `b`, `l`, `r`, `s`) via Web Bluetooth API
-2. **ESP32 Bridge** (`firmware/ble_bridge.ino`) -- receives BLE data and forwards over UART
-3. **Arduino Car** (`firmware/car_controller.ino`) -- drives two DC motors and a steering servo
+1. **Web App** (`index.html`): sends commands (`f`, `b`, `l`, `r`, `s`) via Web Bluetooth API
+2. **ESP32 Bridge** (`firmware/ble_bridge.ino`): receives BLE data and forwards over UART
+3. **Arduino Car** (`firmware/car_controller.ino`): drives two DC motors and a steering servo
 
 ## Web Controller Features
 
@@ -35,8 +35,8 @@ Flash both firmware files after updating; the new page and the new car firmware 
 ## Hardware Wiring
 
 | Connection | Detail |
-|---|---|
-| ESP32 TX to Arduino RX | GPIO 17 to Arduino Pin 12 |
+| --- | --- |
+| ESP32 TX to Arduino RX | GPIO 17 to Arduino Pin 12 (SoftwareSerial, 9600 baud) |
 | Steering Servo | Arduino Pin 8 |
 | Left Motor | Arduino Pins 3 and 11 |
 | Right Motor | Arduino Pins 5 and 6 |
@@ -65,7 +65,7 @@ Deploy to Netlify:
 ## Commands
 
 | Command | Action |
-|---|---|
+| --- | --- |
 | `f` | Forward |
 | `b` | Backward |
 | `l` | Turn Left |
@@ -78,6 +78,15 @@ Single-letter commands drive at full speed. The page sends `J` commands for driv
 ## Servo Trim
 
 Adjust `initAngle` in `car_controller.ino` to center your steering. Default is 75 degrees.
+
+## Tech Stack
+
+| Part | Technology |
+| --- | --- |
+| Web app | HTML, CSS, JavaScript, Web Bluetooth API, Gamepad API |
+| App shell | PWA with a service worker (`sw.js`) |
+| Bridge | ESP32, Arduino core, BLE GATT server |
+| Car | Arduino board, SoftwareSerial, Servo, PWM motor control |
 
 ## License
 MIT License
